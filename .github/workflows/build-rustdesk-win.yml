@@ -11,10 +11,6 @@ on:
         description: Upload to GitHub Release
         required: true
         default: "false"
-      package_selfhost_config:
-        description: Generate self-hosted deployment scripts from split self-host secrets
-        required: true
-        default: 'true'
   push:
     branches:
       - main
@@ -205,7 +201,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
       - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@v1
+        uses: KyleMayes/install-llvm-action@v2.0.9
         with:
           version: ${{ env.LLVM_VERSION }}
 
@@ -340,40 +336,38 @@ jobs:
           clang --version
           nasm -v
 
+      - name: Validate embedded self-host configuration
+        shell: pwsh
+        env:
+          RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
+          RUSTDESK_KEY: ${{ secrets.RUSTDESK_KEY }}
+          RUSTDESK_API: ${{ secrets.RUSTDESK_API }}
+        run: |
+          $rendezvousServer = ([string]$env:RUSTDESK_HOST).Trim()
+          $publicKey = ([string]$env:RUSTDESK_KEY).Trim()
+          $apiServer = ([string]$env:RUSTDESK_API).Trim()
+
+          if ($rendezvousServer -or $publicKey -or $apiServer) {
+            if (-not $rendezvousServer -or -not $publicKey) {
+              throw "Embedded self-hosted builds require both RUSTDESK_HOST and RUSTDESK_KEY. Remove all self-hosted secrets to build an unconfigured upstream client."
+            }
+
+            Write-Host "Building a RustDesk client with embedded self-hosted server settings."
+          } else {
+            Write-Host "No self-hosted secrets supplied; building an unconfigured upstream client."
+          }
+
       - name: Run build script
         shell: pwsh
         working-directory: rustdesk
         env:
           VCPKG_ROOT: ${{ env.VCPKG_ROOT }}
           LIBCLANG_PATH: ${{ env.LIBCLANG_PATH }}
+          RS_PUB_KEY: ${{ secrets.RUSTDESK_KEY }}
+          RENDEZVOUS_SERVER: ${{ secrets.RUSTDESK_HOST }}
+          API_SERVER: ${{ secrets.RUSTDESK_API }}
         run: |
           ..\scripts\build.ps1
-
-      - name: Resolve self-hosted config
-        id: selfhost
-        if: ${{ github.event.inputs.package_selfhost_config != 'false' }}
-        shell: pwsh
-        env:
-          RUSTDESK_CONFIG: ${{ secrets.RUSTDESK_CONFIG }}
-          RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
-          RUSTDESK_RELAY: ${{ secrets.RUSTDESK_RELAY }}
-          RUSTDESK_API: ${{ secrets.RUSTDESK_API }}
-          RUSTDESK_KEY: ${{ secrets.RUSTDESK_KEY }}
-        run: |
-          & (Join-Path $env:GITHUB_WORKSPACE 'scripts\resolve-selfhost-config.ps1')
-
-      - name: Generate self-hosted deployment scripts
-        if: ${{ steps.selfhost.outputs.enabled == 'true' }}
-        shell: pwsh
-        env:
-          RUSTDESK_CONFIG: ${{ steps.selfhost.outputs.value }}
-          RUSTDESK_CONFIG_SOURCE: ${{ steps.selfhost.outputs.source }}
-        run: |
-          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
-            choco install nsis -y --no-progress
-          }
-          makensis.exe /VERSION
-          & (Join-Path $env:GITHUB_WORKSPACE 'scripts\generate-selfhost-package.ps1')
 
       - name: Collect artifacts
         shell: pwsh
