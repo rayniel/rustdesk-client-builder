@@ -299,10 +299,13 @@ jobs:
           $flutterRoot = $env:FLUTTER_ROOT
           if ([string]::IsNullOrWhiteSpace($flutterRoot)) {
             $flutterCommand = Get-Command flutter -ErrorAction Stop
-            $flutterRoot = Split-Path -Parent (Split-Path -Parent $flutterCommand.Source)
+            $flutterRoot = Split-Path -Parent $flutterCommand.Source
           }
           $engineRoot = Join-Path $flutterRoot 'bin\cache\artifacts\engine\windows-x64-release'
           New-Item -ItemType Directory -Force -Path $engineRoot | Out-Null
+          if (-not (Test-Path $engineRoot -PathType Container)) {
+            throw "Flutter Windows engine directory was not created: $engineRoot"
+          }
           Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
           Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
           Copy-Item windows-x64-release\* $engineRoot -Recurse -Force
@@ -315,7 +318,7 @@ jobs:
             $flutterRoot = $env:FLUTTER_ROOT
             if ([string]::IsNullOrWhiteSpace($flutterRoot)) {
               $flutterCommand = Get-Command flutter -ErrorAction Stop
-              $flutterRoot = Split-Path -Parent (Split-Path -Parent $flutterCommand.Source)
+              $flutterRoot = Split-Path -Parent $flutterCommand.Source
             }
             git -C $flutterRoot apply --check $patch
             git -C $flutterRoot apply $patch
@@ -385,7 +388,7 @@ jobs:
       - name: Create distributable zip
         shell: pwsh
         run: |
-          $bundleName = "rustdesk-windows-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-bundle.zip"
+          $bundleName = "rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-bundle.zip"
           if (Test-Path $bundleName) {
             Remove-Item $bundleName -Force
           }
@@ -394,19 +397,19 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rustdesk-windows-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
+          name: rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
           path: |
             dist
-            rustdesk-windows-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-bundle.zip
+            rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-bundle.zip
 
       - name: Create Release
         if: ${{ github.event.inputs.upload_release == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: rustdesk-${{ needs.resolve-rustdesk-ref.outputs.ref }}
-          name: RustDesk ${{ needs.resolve-rustdesk-ref.outputs.ref }}
+          tag_name: rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.ref }}
+          name: RustDesk Windows x64 ${{ needs.resolve-rustdesk-ref.outputs.ref }}
           files: |
             dist/**/*
-            rustdesk-windows-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-bundle.zip
+            rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-bundle.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
