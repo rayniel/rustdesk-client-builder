@@ -369,21 +369,16 @@ jobs:
         run: |
           ..\scripts\build.ps1
 
-      - name: Collect artifacts
+      - name: Collect installer
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
-          Get-ChildItem -Path rustdesk -Filter 'rustdesk-*-install.exe' -ErrorAction SilentlyContinue |
-            Copy-Item -Destination 'dist\' -Force
-
-          if (Test-Path "rustdesk\flutter\build\windows\x64\runner\Release") {
-            Copy-Item "rustdesk\flutter\build\windows\x64\runner\Release\*" "dist\" -Recurse -Force
+          $installers = @(Get-ChildItem -Path rustdesk -Filter 'rustdesk-*-install.exe' -File)
+          if ($installers.Count -ne 1) {
+            throw "Expected exactly one RustDesk installer, found $($installers.Count)."
           }
-
-          if (Test-Path "rustdesk\target\release\dylib_virtual_display.dll") {
-            Copy-Item "rustdesk\target\release\dylib_virtual_display.dll" "dist\" -Force
-          }
+          Copy-Item -Path $installers[0].FullName -Destination 'dist\' -Force
 
       - name: Create distributable zip
         shell: pwsh
@@ -392,15 +387,13 @@ jobs:
           if (Test-Path $bundleName) {
             Remove-Item $bundleName -Force
           }
-          Compress-Archive -Path dist\* -DestinationPath $bundleName -CompressionLevel Optimal
+          Compress-Archive -Path dist\*.exe -DestinationPath $bundleName -CompressionLevel Optimal
 
-      - name: Upload artifacts
+      - name: Upload installer bundle
         uses: actions/upload-artifact@v4
         with:
           name: rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
-          path: |
-            dist
-            rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-bundle.zip
+          path: rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-bundle.zip
 
       - name: Create Release
         if: ${{ github.event.inputs.upload_release == 'true' }}
@@ -408,8 +401,6 @@ jobs:
         with:
           tag_name: rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.ref }}
           name: RustDesk Windows x64 ${{ needs.resolve-rustdesk-ref.outputs.ref }}
-          files: |
-            dist/**/*
-            rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-bundle.zip
+          files: dist\*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
