@@ -27,13 +27,10 @@ RustDesk 上游文档说明，自定义客户端应在构建过程使用 `RS_PUB
 
 未设置任何上述 Secret 时，工作流保持 RustDesk 上游的普通未配置构建。设置了完整的 `RUSTDESK_HOST` 和 `RUSTDESK_KEY` 时，默认产物就是已嵌入自建服务器配置的客户端。
 
-工作流构建完成后，产物目录 `dist` 会包含:
-- RustDesk Windows 安装包 `rustdesk-*-install.exe`
-- Flutter 构建输出目录内容
+工作流仅分发 RustDesk 原生 Windows 安装程序 `rustdesk-*-install.exe`。该安装程序已包含运行所需文件，也是终端用户唯一需要运行的文件。
 
-同时还会额外生成一个可直接分发的压缩包:
-
-- `rustdesk-windows-x64-<ref>-bundle.zip`
+- GitHub Actions Artifact 仅包含 `rustdesk-windows-x64-<ref>-bundle.zip`，其中仅有该安装 EXE。Actions Artifact 固定以 ZIP 形式下载。
+- 手动运行时将 `upload_release` 设为 `true`，GitHub Release 会直接提供 `rustdesk-*-install.exe` 下载，不再附加重复 ZIP 或展开目录。
 
 ## 说明
 
