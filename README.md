@@ -29,13 +29,13 @@ RustDesk 上游文档说明，自定义客户端应在构建过程使用 `RS_PUB
 
 工作流仅分发 RustDesk 原生 Windows 安装程序 `rustdesk-*-install.exe`。该安装程序已包含运行所需文件，也是终端用户唯一需要运行的文件。
 
-- GitHub Actions Artifact 仅包含 `rustdesk-windows-x64-<ref>-bundle.zip`，其中仅有该安装 EXE。Actions Artifact 固定以 ZIP 形式下载。
+- GitHub Actions Artifact 直接包含该安装 EXE。Actions Artifact 固定以 ZIP 形式下载，解压一次后即可运行 EXE。
 - 手动运行时将 `upload_release` 设为 `true`，GitHub Release 会直接提供 `rustdesk-*-install.exe` 下载，不再附加重复 ZIP 或展开目录。
 
 ## 说明
 
 - 当前方案兼容 RustDesk 开源版常规构建流程，不依赖 Pro 的 custom client generator
-- 当前工作流仅构建 Windows x64（`x86_64-pc-windows-msvc`）；Artifact、ZIP 和 Release 名称均包含 `windows-x64`
+- 当前工作流仅构建 Windows x64（`x86_64-pc-windows-msvc`）；Artifact 与 Release 名称均包含 `windows-x64`
 - 如果未设置上述任何自建服务器 Secret，工作流仍会正常构建未配置客户端
 - Windows runner 上的 NASM 和 vcpkg 不能盲目跟随最新版本；本仓库固定 NASM 2.16.03 和 RustDesk 上游 CI 使用的 vcpkg commit，以避免 `aom:x64-windows-static` 在新工具链上构建失败
 - 为降低上游 `master` 变化带来的风险，日常发布建议在 `rustdesk_ref` 中填写已验证的 RustDesk tag 或 commit；工作流会为指定 ref 单独生成匹配的 Bridge 文件

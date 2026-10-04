@@ -380,20 +380,11 @@ jobs:
           }
           Copy-Item -Path $installers[0].FullName -Destination 'dist\' -Force
 
-      - name: Create distributable zip
-        shell: pwsh
-        run: |
-          $bundleName = "rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-bundle.zip"
-          if (Test-Path $bundleName) {
-            Remove-Item $bundleName -Force
-          }
-          Compress-Archive -Path dist\*.exe -DestinationPath $bundleName -CompressionLevel Optimal
-
-      - name: Upload installer bundle
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
-          path: rustdesk-windows-x64-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-bundle.zip
+          path: dist\*.exe
 
       - name: Create Release
         if: ${{ github.event.inputs.upload_release == 'true' }}
