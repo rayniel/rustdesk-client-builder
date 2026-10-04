@@ -11,6 +11,10 @@ on:
         description: Upload to GitHub Release
         required: true
         default: "false"
+      embed_selfhost_config:
+        description: Embed self-hosted server defaults into the compiled client when secrets are configured
+        required: true
+        default: "true"
   push:
     branches:
       - main
@@ -336,26 +340,14 @@ jobs:
           clang --version
           nasm -v
 
-      - name: Validate embedded self-host configuration
+      - name: Apply embedded self-host configuration
+        if: ${{ github.event.inputs.embed_selfhost_config != 'false' }}
         shell: pwsh
         env:
           RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
           RUSTDESK_KEY: ${{ secrets.RUSTDESK_KEY }}
-          RUSTDESK_API: ${{ secrets.RUSTDESK_API }}
         run: |
-          $rendezvousServer = ([string]$env:RUSTDESK_HOST).Trim()
-          $publicKey = ([string]$env:RUSTDESK_KEY).Trim()
-          $apiServer = ([string]$env:RUSTDESK_API).Trim()
-
-          if ($rendezvousServer -or $publicKey -or $apiServer) {
-            if (-not $rendezvousServer -or -not $publicKey) {
-              throw "Embedded self-hosted builds require both RUSTDESK_HOST and RUSTDESK_KEY. Remove all self-hosted secrets to build an unconfigured upstream client."
-            }
-
-            Write-Host "Building a RustDesk client with embedded self-hosted server settings."
-          } else {
-            Write-Host "No self-hosted secrets supplied; building an unconfigured upstream client."
-          }
+          & (Join-Path $env:GITHUB_WORKSPACE 'scripts\apply-embedded-server-config.ps1')
 
       - name: Run build script
         shell: pwsh
@@ -363,9 +355,6 @@ jobs:
         env:
           VCPKG_ROOT: ${{ env.VCPKG_ROOT }}
           LIBCLANG_PATH: ${{ env.LIBCLANG_PATH }}
-          RS_PUB_KEY: ${{ secrets.RUSTDESK_KEY }}
-          RENDEZVOUS_SERVER: ${{ secrets.RUSTDESK_HOST }}
-          API_SERVER: ${{ secrets.RUSTDESK_API }}
         run: |
           ..\scripts\build.ps1
 
