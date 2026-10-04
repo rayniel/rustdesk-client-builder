@@ -31,6 +31,12 @@
 - GitHub Actions Artifact 直接包含该安装 EXE。Actions Artifact 固定以 ZIP 形式下载，解压一次后即可运行 EXE。
 - 手动运行时将 `upload_release` 设为 `true`，GitHub Release 会直接提供该安装 EXE 下载，不再附加重复 ZIP 或展开目录。
 
+### 验证自建服务器
+
+“设置 → 网络”显示为空是正常的：内置值是编译期默认值，不会被写入用户的自定义网络设置。工作流会在打包前检查实际 `rustdesk.exe` 是否包含配置的 `RUSTDESK_HOST`；检查失败时不会上传安装包。
+
+便携安装包的“直接使用”模式会解压到 `%LOCALAPPDATA%\rustdesk`，并仍会读取当前 Windows 用户已有的 RustDesk 配置。请使用新的 Windows 用户账户或虚拟机测试：不填写任何网络参数启动客户端，并在 `hbbs` 日志中确认该客户端 ID 的注册或心跳连接。
+
 ## 说明
 
 - 当前方案兼容 RustDesk 开源版常规构建流程，不依赖 Pro 的 custom client generator
