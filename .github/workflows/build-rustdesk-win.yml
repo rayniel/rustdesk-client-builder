@@ -356,6 +356,7 @@ jobs:
           VCPKG_ROOT: ${{ env.VCPKG_ROOT }}
           LIBCLANG_PATH: ${{ env.LIBCLANG_PATH }}
           RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
+          EMBED_SELFHOST_CONFIG: ${{ github.event.inputs.embed_selfhost_config }}
         run: |
           ..\scripts\build.ps1
 

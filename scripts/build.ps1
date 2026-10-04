@@ -20,7 +20,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $serverHost = ([string]$env:RUSTDESK_HOST).Trim()
-if (-not [string]::IsNullOrWhiteSpace($serverHost)) {
+if ($env:EMBED_SELFHOST_CONFIG -ne 'false' -and -not [string]::IsNullOrWhiteSpace($serverHost)) {
     $clientLibraryPath = Join-Path $PWD 'flutter\build\windows\x64\runner\Release\librustdesk.dll'
     if (-not (Test-Path $clientLibraryPath -PathType Leaf)) {
         throw "Built RustDesk library was not found: $clientLibraryPath"
