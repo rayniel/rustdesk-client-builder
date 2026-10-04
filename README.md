@@ -1,6 +1,6 @@
 # rustdesk-win-builder
 
-在线构建最新版 RustDesk Windows 客户端，并可在编译时将自建服务器配置嵌入二进制文件。
+在线构建最新版 RustDesk Windows 客户端，并可生成自动导入自建服务器配置的安装程序。
 
 ## 工作流入口
 
@@ -13,24 +13,25 @@
 
 ## 自建服务器配置
 
-RustDesk 上游文档说明，自定义客户端应在构建过程使用 `RS_PUB_KEY`、`RENDEZVOUS_SERVER` 和 `API_SERVER` 环境变量。本工作流将 GitHub Secrets 映射为这些变量，因此配置会直接编译进 Windows 二进制文件；安装后无需、也不会调用 `rustdesk.exe --config`。
+RustDesk 的普通 Windows 安装包不会从构建环境变量持久化自建服务器配置。本工作流在配置 Secret 后生成单一自包含安装 EXE；它安装 RustDesk 后自动调用官方 `rustdesk.exe --config` 命令写入服务器配置。
 
 如需构建已配置的客户端，请设置以下 GitHub Secrets:
 
-- `RUSTDESK_HOST`: 必填，映射到 `RENDEZVOUS_SERVER`，通常是 hbbs 地址
+- `RUSTDESK_HOST`: 必填，通常是 hbbs 地址
 - `RUSTDESK_KEY`: 必填，服务器公钥
-- `RUSTDESK_API`: 可选，映射到 `API_SERVER`，用于 API 地址
+- `RUSTDESK_RELAY`: 可选，hbbr 地址
+- `RUSTDESK_API`: 可选，RustDesk Pro API 地址
 
-`RUSTDESK_KEY` 会映射到上游要求的 `RS_PUB_KEY`。只要设置了任一上述 Secret，就必须同时提供 `RUSTDESK_HOST` 和 `RUSTDESK_KEY`；否则工作流会在编译前明确失败，避免产出配置不完整的客户端。
+只要设置了任一上述 Secret，就必须同时提供 `RUSTDESK_HOST` 和 `RUSTDESK_KEY`；否则工作流会在编译前明确失败，避免产出配置不完整的客户端。
 
-不要设置 `RUSTDESK_RELAY`：RustDesk 上游文档列出的嵌入式构建变量不包含独立的 relay 变量，因此本工作流不会将它编译进客户端。
+也可使用 `RUSTDESK_CONFIG` 保存由 RustDesk 客户端导出的完整 Server Config 字符串；当未设置分项 Secret 时，工作流会使用该值。
 
-未设置任何上述 Secret 时，工作流保持 RustDesk 上游的普通未配置构建。设置了完整的 `RUSTDESK_HOST` 和 `RUSTDESK_KEY` 时，默认产物就是已嵌入自建服务器配置的客户端。
+未设置任何上述 Secret 时，工作流分发原生 `rustdesk-*-install.exe`。设置了完整的自建服务器配置后，工作流只分发 `rustdesk-*-selfhosted-setup.exe`；用户双击该 EXE 即可完成安装和配置导入。
 
-工作流仅分发 RustDesk 原生 Windows 安装程序 `rustdesk-*-install.exe`。该安装程序已包含运行所需文件，也是终端用户唯一需要运行的文件。
+工作流每次只分发一个终端用户安装 EXE。未配置自建服务器时为原生 `rustdesk-*-install.exe`；配置后为 `rustdesk-*-selfhosted-setup.exe`。
 
 - GitHub Actions Artifact 直接包含该安装 EXE。Actions Artifact 固定以 ZIP 形式下载，解压一次后即可运行 EXE。
-- 手动运行时将 `upload_release` 设为 `true`，GitHub Release 会直接提供 `rustdesk-*-install.exe` 下载，不再附加重复 ZIP 或展开目录。
+- 手动运行时将 `upload_release` 设为 `true`，GitHub Release 会直接提供该安装 EXE 下载，不再附加重复 ZIP 或展开目录。
 
 ## 说明
 
