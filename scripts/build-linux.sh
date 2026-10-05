@@ -18,7 +18,7 @@ python3 ./build.py --flutter --hwcodec --unix-file-copy-paste
 server_host=${RUSTDESK_HOST:-}
 server_host=$(printf '%s' "$server_host" | xargs)
 if [[ ${EMBED_SELFHOST_CONFIG:-} != "false" && -n "$server_host" ]]; then
-  client_library_path="./flutter/build/linux/x64/release/bundle/lib/liblibrustdesk.so"
+  client_library_path="./flutter/build/linux/x64/release/bundle/lib/librustdesk.so"
   if [[ ! -f "$client_library_path" ]]; then
     echo "Built RustDesk library was not found: $client_library_path" >&2
     exit 1
