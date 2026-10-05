@@ -1,4 +1,4 @@
-# rustdesk-win-builder
+# rustdesk-client-builder
 
 在线构建最新版 RustDesk Windows 与 Linux x64 客户端，并可将自建服务器默认配置编译进客户端。
 
