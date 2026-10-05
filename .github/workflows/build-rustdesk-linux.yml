@@ -320,6 +320,7 @@ jobs:
           fi
           cp "${packages[0]}" appimage/rustdesk.deb
           pushd appimage
+          bash "$GITHUB_WORKSPACE/scripts/prepare-appimage-recipe.sh" ./AppImageBuilder-x86_64.yml
           ./build-apprun.sh x86_64
           appimage-builder --skip-tests --recipe ./AppImageBuilder-x86_64.yml
           appimages=(rustdesk-*.AppImage)
