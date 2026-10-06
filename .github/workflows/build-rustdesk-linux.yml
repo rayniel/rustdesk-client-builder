@@ -190,6 +190,7 @@ jobs:
             ninja-build \
             pkg-config \
             python3-pip \
+            rpm \
             wayland-protocols
 
       - name: Setup Rust
@@ -275,11 +276,27 @@ jobs:
           fi
           cp "${packages[0]}" dist/
 
-      - name: Upload Debian package for AppImage build
+      - name: Build RPM package
+        shell: bash
+        working-directory: rustdesk
+        run: |
+          HBB="$PWD" rpmbuild -bb res/rpm-flutter.spec
+
+          shopt -s nullglob
+          packages=("$HOME"/rpmbuild/RPMS/x86_64/rustdesk-*.rpm)
+          if [[ ${#packages[@]} -ne 1 ]]; then
+            echo "Expected exactly one RustDesk RPM package, found ${#packages[@]}." >&2
+            exit 1
+          fi
+          cp "${packages[0]}" "$GITHUB_WORKSPACE/dist/"
+
+      - name: Upload Linux packages for AppImage build
         uses: actions/upload-artifact@v4
         with:
-          name: rustdesk-linux-x64-deb-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
-          path: dist/*.deb
+          name: rustdesk-linux-x64-packages-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
+          path: |
+            dist/*.deb
+            dist/*.rpm
 
   build-appimage:
     needs:
@@ -300,10 +317,10 @@ jobs:
           path: rustdesk
           submodules: recursive
 
-      - name: Download Debian package
+      - name: Download Linux packages
         uses: actions/download-artifact@v4
         with:
-          name: rustdesk-linux-x64-deb-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
+          name: rustdesk-linux-x64-packages-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
           path: dist
 
       - name: Build AppImage
@@ -341,6 +358,7 @@ jobs:
           path: |
             dist/*.deb
             dist/*.AppImage
+            dist/*.rpm
 
       - name: Create Release
         if: ${{ github.event.inputs.upload_release == 'true' }}
@@ -351,5 +369,6 @@ jobs:
           files: |
             dist/*.deb
             dist/*.AppImage
+            dist/*.rpm
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

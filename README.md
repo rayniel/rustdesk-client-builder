@@ -35,9 +35,10 @@ Windows 工作流每次只分发一个原生 `rustdesk-*-install.exe`。
 Linux 工作流构建原生 Linux x64 包：
 
 - `.deb`：适用于 Ubuntu、Debian 及其他 Debian 系发行版。
+- `.rpm`：适用于 Fedora、RHEL、Rocky Linux、AlmaLinux、CentOS Stream 及其他 RPM 系发行版。
 - `.AppImage`：可在大多数 x64 Linux 发行版直接运行；下载后执行 `chmod +x rustdesk-*.AppImage`。
 
-Linux Artifact 直接包含这两个文件；手动运行时将 `upload_release` 设为 `true`，Release 会提供两者的直接下载。
+Linux Artifact 直接包含这三个文件；手动运行时将 `upload_release` 设为 `true`，Release 会提供三者的直接下载。
 
 ### 验证自建服务器
 
