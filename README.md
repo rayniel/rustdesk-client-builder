@@ -1,11 +1,12 @@
 # rustdesk-client-builder
 
-在线构建最新版 RustDesk Windows 与 Linux x64 客户端，并可将自建服务器默认配置编译进客户端。
+在线构建最新版 RustDesk Windows、Linux 与 macOS 客户端，并可将自建服务器默认配置编译进客户端。
 
 ## 工作流入口
 
 - Windows GitHub Actions: `.github/workflows/build-rustdesk-win.yml`
 - Linux GitHub Actions: `.github/workflows/build-rustdesk-linux.yml`
+- macOS GitHub Actions: `.github/workflows/build-rustdesk-macos.yml`
 - 手动触发参数:
 	- `rustdesk_ref`: RustDesk 分支、标签或提交
 	- `upload_release`: 是否发布到 GitHub Release
@@ -34,11 +35,18 @@ Windows 工作流每次只分发一个原生 `rustdesk-*-install.exe`。
 
 Linux 工作流构建原生 Linux x64 包：
 
-- `.deb`：适用于 Ubuntu、Debian 及其他 Debian 系发行版。
+- `.deb`：适用于 Ubuntu、Debian 及其他 Debian 系发行版；分发文件名带 `x86_64`，包内标准架构字段为 `amd64`。
 - `.rpm`：适用于 Fedora、RHEL、Rocky Linux、AlmaLinux、CentOS Stream 及其他 RPM 系发行版。
 - `.AppImage`：可在大多数 x64 Linux 发行版直接运行；下载后执行 `chmod +x rustdesk-*.AppImage`。
 
 Linux Artifact 直接包含这三个文件；手动运行时将 `upload_release` 设为 `true`，Release 会提供三者的直接下载。
+
+macOS 工作流构建两个未签名的 `.dmg`：
+
+- `x86_64`：使用 `macos-13` runner 构建，适用于 Intel Mac。
+- `arm64`：使用 `macos-14` runner 构建，适用于 Apple Silicon（M1/M2/M3/M4）Mac。
+
+DMG 内含 RustDesk.app 与“应用程序”拖放快捷方式。未签名版本仅适合内部测试或受信任分发；首次打开出现 Gatekeeper 提示时，请在 Finder 中按住 `Control` 点按应用并选择“打开”，或在“系统设置 → 隐私与安全性”选择“仍要打开”。不要关闭 Gatekeeper 或运行全局绕过命令。
 
 ### 验证自建服务器
 
@@ -49,7 +57,7 @@ Linux Artifact 直接包含这三个文件；手动运行时将 `upload_release`
 ## 说明
 
 - 当前方案兼容 RustDesk 开源版常规构建流程，不依赖 Pro 的 custom client generator
-- 当前工作流构建 Windows x64（`x86_64-pc-windows-msvc`）和 Linux x64（`x86_64-unknown-linux-gnu`）；Artifact 与 Release 名称均包含平台和 `x64`
+- 当前工作流构建 Windows x64（`x86_64-pc-windows-msvc`）、Linux x64（`x86_64-unknown-linux-gnu`）、macOS Intel x64（`x86_64-apple-darwin`）和 macOS Apple Silicon ARM64（`aarch64-apple-darwin`）；Artifact 与 Release 名称均包含平台和架构
 - 如果未设置上述任何自建服务器 Secret，工作流仍会正常构建未配置客户端
 - Windows runner 上的 NASM 和 vcpkg 不能盲目跟随最新版本；本仓库固定 NASM 2.16.03 和 RustDesk 上游 CI 使用的 vcpkg commit，以避免 `aom:x64-windows-static` 在新工具链上构建失败
 - 为降低上游 `master` 变化带来的风险，日常发布建议在 `rustdesk_ref` 中填写已验证的 RustDesk tag 或 commit；工作流会为指定 ref 单独生成匹配的 Bridge 文件

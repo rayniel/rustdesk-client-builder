@@ -1,4 +1,4 @@
-name: Build RustDesk Linux
+name: Build RustDesk macOS
 
 on:
   workflow_dispatch:
@@ -22,11 +22,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: "1.75"
+  BRIDGE_RUST_VERSION: "1.75"
+  RUST_VERSION: "1.81"
   FLUTTER_VERSION: "3.24.5"
   VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
-  VCPKG_DEFAULT_TRIPLET: x64-linux
-  VCPKG_DEFAULT_HOST_TRIPLET: x64-linux
 
 jobs:
   resolve-rustdesk-ref:
@@ -78,7 +77,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: ${{ env.RUST_VERSION }}
+          toolchain: ${{ env.BRIDGE_RUST_VERSION }}
           targets: x86_64-unknown-linux-gnu
           components: rustfmt
 
@@ -117,7 +116,7 @@ jobs:
       - name: Upload generated bridge files
         uses: actions/upload-artifact@v4
         with:
-          name: rustdesk-linux-bridge-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
+          name: rustdesk-macos-bridge-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
           path: |
             src/bridge_generated.rs
             src/bridge_generated.io.rs
@@ -126,20 +125,30 @@ jobs:
             flutter/macos/Runner/bridge_generated.h
             flutter/ios/Runner/bridge_generated.h
 
-  build-linux:
+  build-macos:
     needs:
       - resolve-rustdesk-ref
       - generate-bridge
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            rust_target: x86_64-apple-darwin
+            arch: x86_64
+            vcpkg_triplet: x64-osx
+            build_args: ""
+            min_macos_version: "10.14"
+          - runner: macos-14
+            rust_target: aarch64-apple-darwin
+            arch: arm64
+            vcpkg_triplet: arm64-osx
+            build_args: "--screencapturekit"
+            min_macos_version: "12.3"
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
 
     steps:
-      - name: Free build space
-        shell: bash
-        run: |
-          sudo rm -rf /opt/ghc /usr/local/lib/android /usr/share/dotnet
-          df -h
-
       - name: Checkout builder repo
         uses: actions/checkout@v4
 
@@ -154,68 +163,55 @@ jobs:
       - name: Restore generated bridge files
         uses: actions/download-artifact@v4
         with:
-          name: rustdesk-linux-bridge-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
+          name: rustdesk-macos-bridge-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
           path: rustdesk
 
-      - name: Install Linux dependencies
+      - name: Install build dependencies
         shell: bash
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            build-essential \
-            clang \
-            cmake \
-            curl \
-            gcc \
-            g++ \
-            libasound2-dev \
-            libayatana-appindicator3-dev \
-            libc6-dev \
-            libclang-dev \
-            libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev \
-            libgtk-3-dev \
-            libpulse-dev \
-            libssl-dev \
-            libunwind-dev \
-            libva-dev \
-            libwayland-dev \
-            libxcb-randr0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxdo-dev \
-            libxfixes-dev \
-            llvm-dev \
-            nasm \
-            ninja-build \
-            pkg-config \
-            python3-pip \
-            rpm \
-            wayland-protocols
+          brew install create-dmg llvm pkg-config
+          curl --fail --location --silent --show-error \
+            --output nasm.zip \
+            https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/macosx/nasm-2.16.03-macosx.zip
+          unzip -q nasm.zip
+          sudo cp nasm-2.16.03/nasm /usr/local/bin/nasm
+          nasm --version
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
-          targets: x86_64-unknown-linux-gnu
-
-      - name: Cache Cargo dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            rustdesk/target
-          key: Linux-cargo-${{ env.RUST_VERSION }}-${{ hashFiles('rustdesk/**/Cargo.lock') }}
-          restore-keys: |
-            Linux-cargo-${{ env.RUST_VERSION }}-
-            Linux-cargo-
+          targets: ${{ matrix.rust_target }}
+          components: rustfmt
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2.23.0
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Apply required Flutter patch
+        shell: bash
+        run: |
+          patch="$GITHUB_WORKSPACE/rustdesk/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
+          if [[ -f "$patch" ]]; then
+            flutter_root="$(dirname "$(dirname "$(command -v flutter)")")"
+            git -C "$flutter_root" apply --check "$patch"
+            git -C "$flutter_root" apply "$patch"
+          else
+            echo "::warning::RustDesk ref does not provide the Flutter 3.24.5 patch; continuing without it."
+          fi
+
+      - name: Configure Apple Silicon deployment target
+        if: ${{ matrix.arch == 'arm64' }}
+        shell: bash
+        working-directory: rustdesk
+        run: |
+          min_version="${{ matrix.min_macos_version }}"
+          sed -i '' -E "s/MACOSX_DEPLOYMENT_TARGET=[0-9]+\.[0-9]+/MACOSX_DEPLOYMENT_TARGET=${min_version}/" build.py
+          sed -i '' -E "s/platform :osx, '[0-9]+\.[0-9]+'/platform :osx, '${min_version}'/" flutter/macos/Podfile
+          sed -i '' -E "s/osx_minimum_system_version = \"[0-9]+\.[0-9]+\"/osx_minimum_system_version = \"${min_version}\"/" Cargo.toml
+          sed -i '' -E "s/MACOSX_DEPLOYMENT_TARGET = [0-9]+\.[0-9]+;/MACOSX_DEPLOYMENT_TARGET = ${min_version};/" flutter/macos/Runner.xcodeproj/project.pbxproj
 
       - name: Setup vcpkg
         shell: bash
@@ -231,20 +227,8 @@ jobs:
         working-directory: rustdesk
         run: |
           "$VCPKG_ROOT/vcpkg" install \
-            --triplet "$VCPKG_DEFAULT_TRIPLET" \
+            --triplet "${{ matrix.vcpkg_triplet }}" \
             --x-install-root="$VCPKG_ROOT/installed"
-
-      - name: Apply required Flutter patch
-        shell: bash
-        run: |
-          patch="$GITHUB_WORKSPACE/rustdesk/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
-          if [[ -f "$patch" ]]; then
-            flutter_root="$(dirname "$(dirname "$(command -v flutter)")")"
-            git -C "$flutter_root" apply --check "$patch"
-            git -C "$flutter_root" apply "$patch"
-          else
-            echo "::warning::RustDesk ref does not provide the Flutter 3.24.5 patch; continuing without it."
-          fi
 
       - name: Apply embedded self-host configuration
         if: ${{ github.event.inputs.embed_selfhost_config != 'false' }}
@@ -255,121 +239,79 @@ jobs:
         run: |
           bash "$GITHUB_WORKSPACE/scripts/apply-embedded-server-config.sh" "$GITHUB_WORKSPACE/rustdesk"
 
-      - name: Build Linux Debian package
+      - name: Build unsigned macOS client
         shell: bash
         working-directory: rustdesk
         env:
           RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
           EMBED_SELFHOST_CONFIG: ${{ github.event.inputs.embed_selfhost_config }}
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
+          VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.vcpkg_triplet }}
         run: |
-          bash "$GITHUB_WORKSPACE/scripts/build-linux.sh"
+          flutter config --enable-macos-desktop
+          python3 ./build.py --flutter --hwcodec --unix-file-copy-paste ${{ matrix.build_args }}
 
-      - name: Collect Debian package
+      - name: Verify embedded self-host configuration
+        if: ${{ github.event.inputs.embed_selfhost_config != 'false' }}
         shell: bash
+        working-directory: rustdesk
+        env:
+          RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
         run: |
-          mkdir -p dist
-          shopt -s nullglob
-          packages=(rustdesk/rustdesk-*.deb)
-          if [[ ${#packages[@]} -ne 1 ]]; then
-            echo "Expected exactly one RustDesk Debian package, found ${#packages[@]}." >&2
-            exit 1
+          if [[ -z "${RUSTDESK_HOST:-}" ]]; then
+            echo "No self-hosted server was configured; skipping embedded server verification."
+            exit 0
           fi
-          package_name=$(basename "${packages[0]}")
-          cp "${packages[0]}" "dist/${package_name%.deb}-x86_64.deb"
 
-      - name: Build RPM package
+          library_path="./flutter/build/macos/Build/Products/Release/RustDesk.app/Contents/Frameworks/librustdesk.dylib"
+          test -f "$library_path" || { echo "Built RustDesk library was not found: $library_path" >&2; exit 1; }
+          grep -aFq -- "$RUSTDESK_HOST" "$library_path" || {
+            echo "The built RustDesk library does not contain the configured self-hosted server." >&2
+            exit 1
+          }
+
+      - name: Create unsigned disk image
         shell: bash
         working-directory: rustdesk
         run: |
-          HBB="$PWD" rpmbuild -bb res/rpm-flutter.spec
+          app_path="./flutter/build/macos/Build/Products/Release/RustDesk.app"
+          test -d "$app_path" || { echo "Built RustDesk app was not found: $app_path" >&2; exit 1; }
+          create-dmg \
+            --icon "RustDesk.app" 200 190 \
+            --hide-extension "RustDesk.app" \
+            --window-size 800 400 \
+            --app-drop-link 600 185 \
+            "rustdesk-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-${{ matrix.arch }}-unsigned.dmg" \
+            "$app_path"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          mv ./*.dmg "$GITHUB_WORKSPACE/dist/"
 
-          shopt -s nullglob
-          packages=("$HOME"/rpmbuild/RPMS/x86_64/rustdesk-*.rpm)
-          if [[ ${#packages[@]} -ne 1 ]]; then
-            echo "Expected exactly one RustDesk RPM package, found ${#packages[@]}." >&2
-            exit 1
-          fi
-          cp "${packages[0]}" "$GITHUB_WORKSPACE/dist/"
-
-      - name: Upload Linux packages for AppImage build
+      - name: Upload unsigned macOS disk image
         uses: actions/upload-artifact@v4
         with:
-          name: rustdesk-linux-x64-packages-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
-          path: |
-            dist/*.deb
-            dist/*.rpm
+          name: rustdesk-macos-dmg-${{ matrix.arch }}-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
+          path: dist/*.dmg
 
-  build-appimage:
+  publish-macos:
+    if: ${{ github.event.inputs.upload_release == 'true' }}
     needs:
       - resolve-rustdesk-ref
-      - build-linux
+      - build-macos
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
 
     steps:
-      - name: Checkout builder repo
-        uses: actions/checkout@v4
-
-      - name: Checkout RustDesk source
-        uses: actions/checkout@v4
-        with:
-          repository: rustdesk/rustdesk
-          ref: ${{ needs.resolve-rustdesk-ref.outputs.ref }}
-          path: rustdesk
-          submodules: recursive
-
-      - name: Download Linux packages
+      - name: Download macOS disk images
         uses: actions/download-artifact@v4
         with:
-          name: rustdesk-linux-x64-packages-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
+          pattern: rustdesk-macos-dmg-*-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
+          merge-multiple: true
           path: dist
 
-      - name: Build AppImage
-        shell: bash
-        working-directory: rustdesk
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y libarchive-tools libfuse2
-          python3 -m pip install --user "setuptools_scm<10"
-          python3 -m pip install --user git+https://github.com/rustdesk-org/appimage-builder.git
-          export PATH="$HOME/.local/bin:$PATH"
-          shopt -s nullglob
-          packages=("$GITHUB_WORKSPACE"/dist/*.deb)
-          if [[ ${#packages[@]} -ne 1 ]]; then
-            echo "Expected exactly one Debian package for AppImage, found ${#packages[@]}." >&2
-            exit 1
-          fi
-          cp "${packages[0]}" appimage/rustdesk.deb
-          pushd appimage
-          bash "$GITHUB_WORKSPACE/scripts/prepare-appimage-recipe.sh" ./AppImageBuilder-x86_64.yml
-          ./build-apprun.sh x86_64
-          appimage-builder --skip-tests --recipe ./AppImageBuilder-x86_64.yml
-          appimages=(rustdesk-*.AppImage)
-          if [[ ${#appimages[@]} -ne 1 ]]; then
-            echo "Expected exactly one AppImage, found ${#appimages[@]}." >&2
-            exit 1
-          fi
-          mkdir -p "$GITHUB_WORKSPACE/dist"
-          cp "${appimages[0]}" "$GITHUB_WORKSPACE/dist/"
-
-      - name: Upload Linux packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: rustdesk-linux-x64-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
-          path: |
-            dist/*.deb
-            dist/*.AppImage
-            dist/*.rpm
-
       - name: Create Release
-        if: ${{ github.event.inputs.upload_release == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: rustdesk-linux-x64-${{ needs.resolve-rustdesk-ref.outputs.ref }}
-          name: RustDesk Linux x64 ${{ needs.resolve-rustdesk-ref.outputs.ref }}
-          files: |
-            dist/*.deb
-            dist/*.AppImage
-            dist/*.rpm
+          tag_name: rustdesk-macos-${{ needs.resolve-rustdesk-ref.outputs.ref }}
+          name: RustDesk macOS ${{ needs.resolve-rustdesk-ref.outputs.ref }}
+          files: dist/*.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
