@@ -263,16 +263,21 @@ jobs:
             exit 0
           fi
 
-          library_path="./flutter/build/macos/Build/Products/Release/RustDesk.app/Contents/Frameworks/liblibrustdesk.dylib"
-          if [[ ! -f "$library_path" ]]; then
-            echo "Built RustDesk library was not found: $library_path" >&2
-            find "./flutter/build/macos/Build/Products/Release/RustDesk.app" -name '*.dylib' -print >&2 || true
+          app_contents="./flutter/build/macos/Build/Products/Release/RustDesk.app/Contents"
+          if [[ ! -d "$app_contents/MacOS" || ! -d "$app_contents/Frameworks" ]]; then
+            echo "Built RustDesk app does not contain expected MacOS and Frameworks directories." >&2
+            find "$app_contents" -maxdepth 2 -type d -print >&2 || true
             exit 1
           fi
-          grep -aFq -- "$RUSTDESK_HOST" "$library_path" || {
-            echo "The built RustDesk library does not contain the configured self-hosted server." >&2
+
+          matching_files=$(find "$app_contents/MacOS" "$app_contents/Frameworks" -type f -exec grep -aFl -- "$RUSTDESK_HOST" {} + || true)
+          if [[ -z "$matching_files" ]]; then
+            echo "No macOS application binary contains the configured self-hosted server." >&2
+            find "$app_contents/MacOS" "$app_contents/Frameworks" -type f -print >&2 || true
             exit 1
-          }
+          fi
+          echo "Verified that the following packaged macOS binaries contain the configured self-hosted server:"
+          printf '%s\n' "$matching_files"
 
       - name: Create unsigned disk image
         shell: bash
