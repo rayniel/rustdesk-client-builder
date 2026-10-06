@@ -1,0 +1,317 @@
+name: Build RustDesk macOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      rustdesk_ref:
+        description: RustDesk branch, tag, or commit
+        required: true
+        default: master
+      upload_release:
+        description: Upload to GitHub Release
+        required: true
+        default: "false"
+      embed_selfhost_config:
+        description: Embed self-hosted server defaults into the compiled client when secrets are configured
+        required: true
+        default: "true"
+  push:
+    branches:
+      - main
+      - master
+
+env:
+  CARGO_TERM_COLOR: always
+  BRIDGE_RUST_VERSION: "1.75"
+  RUST_VERSION: "1.81"
+  FLUTTER_VERSION: "3.24.5"
+  VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
+
+jobs:
+  resolve-rustdesk-ref:
+    runs-on: ubuntu-22.04
+    outputs:
+      ref: ${{ steps.ref.outputs.ref }}
+      artifact_suffix: ${{ steps.ref.outputs.artifact_suffix }}
+
+    steps:
+      - name: Resolve RustDesk ref
+        id: ref
+        shell: bash
+        run: |
+          ref="${{ github.event.inputs.rustdesk_ref }}"
+          ref="${ref:-master}"
+          artifact_suffix="$(printf '%s' "$ref" | tr '/\:*?"<>|' '-')"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "artifact_suffix=$artifact_suffix" >> "$GITHUB_OUTPUT"
+
+  generate-bridge:
+    needs: resolve-rustdesk-ref
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout RustDesk source
+        uses: actions/checkout@v4
+        with:
+          repository: rustdesk/rustdesk
+          ref: ${{ needs.resolve-rustdesk-ref.outputs.ref }}
+          submodules: recursive
+
+      - name: Install bridge prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            clang \
+            cmake \
+            gcc \
+            g++ \
+            libclang-dev \
+            libgtk-3-dev \
+            llvm-dev \
+            nasm \
+            ninja-build \
+            pkg-config
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.BRIDGE_RUST_VERSION }}
+          targets: x86_64-unknown-linux-gnu
+          components: rustfmt
+
+      - name: Setup bridge Flutter
+        uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          flutter-version: "3.22.3"
+
+      - name: Generate Flutter Rust Bridge files
+        shell: bash
+        run: |
+          cargo install cargo-expand --version 1.0.95 --locked
+          cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid --locked
+          sed -i 's/extended_text: 14.0.0/extended_text: 13.0.0/g' flutter/pubspec.yaml
+          pushd flutter
+          flutter pub get
+          popd
+          "${HOME}/.cargo/bin/flutter_rust_bridge_codegen" \
+            --rust-input ./src/flutter_ffi.rs \
+            --dart-output ./flutter/lib/generated_bridge.dart \
+            --c-output ./flutter/macos/Runner/bridge_generated.h
+          cp ./flutter/macos/Runner/bridge_generated.h ./flutter/ios/Runner/bridge_generated.h
+
+      - name: Verify generated bridge files
+        shell: bash
+        run: |
+          for file in \
+            src/bridge_generated.rs \
+            src/bridge_generated.io.rs \
+            flutter/lib/generated_bridge.dart \
+            flutter/lib/generated_bridge.freezed.dart; do
+            test -s "$file" || { echo "::error::Missing generated bridge file: $file"; exit 1; }
+          done
+
+      - name: Upload generated bridge files
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-macos-bridge-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
+          path: |
+            src/bridge_generated.rs
+            src/bridge_generated.io.rs
+            flutter/lib/generated_bridge.dart
+            flutter/lib/generated_bridge.freezed.dart
+            flutter/macos/Runner/bridge_generated.h
+            flutter/ios/Runner/bridge_generated.h
+
+  build-macos:
+    needs:
+      - resolve-rustdesk-ref
+      - generate-bridge
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            rust_target: x86_64-apple-darwin
+            arch: x86_64
+            vcpkg_triplet: x64-osx
+            build_args: ""
+            min_macos_version: "10.14"
+          - runner: macos-14
+            rust_target: aarch64-apple-darwin
+            arch: arm64
+            vcpkg_triplet: arm64-osx
+            build_args: "--screencapturekit"
+            min_macos_version: "12.3"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout builder repo
+        uses: actions/checkout@v4
+
+      - name: Checkout RustDesk source
+        uses: actions/checkout@v4
+        with:
+          repository: rustdesk/rustdesk
+          ref: ${{ needs.resolve-rustdesk-ref.outputs.ref }}
+          path: rustdesk
+          submodules: recursive
+
+      - name: Restore generated bridge files
+        uses: actions/download-artifact@v4
+        with:
+          name: rustdesk-macos-bridge-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
+          path: rustdesk
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          brew install create-dmg llvm pkg-config
+          curl --fail --location --silent --show-error \
+            --output nasm.zip \
+            https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/macosx/nasm-2.16.03-macosx.zip
+          unzip -q nasm.zip
+          sudo cp nasm-2.16.03/nasm /usr/local/bin/nasm
+          nasm --version
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.rust_target }}
+          components: rustfmt
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Apply required Flutter patch
+        shell: bash
+        run: |
+          patch="$GITHUB_WORKSPACE/rustdesk/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
+          if [[ -f "$patch" ]]; then
+            flutter_root="$(dirname "$(dirname "$(command -v flutter)")")"
+            git -C "$flutter_root" apply --check "$patch"
+            git -C "$flutter_root" apply "$patch"
+          else
+            echo "::warning::RustDesk ref does not provide the Flutter 3.24.5 patch; continuing without it."
+          fi
+
+      - name: Configure Apple Silicon deployment target
+        if: ${{ matrix.arch == 'arm64' }}
+        shell: bash
+        working-directory: rustdesk
+        run: |
+          min_version="${{ matrix.min_macos_version }}"
+          sed -i '' -E "s/MACOSX_DEPLOYMENT_TARGET=[0-9]+\.[0-9]+/MACOSX_DEPLOYMENT_TARGET=${min_version}/" build.py
+          sed -i '' -E "s/platform :osx, '[0-9]+\.[0-9]+'/platform :osx, '${min_version}'/" flutter/macos/Podfile
+          sed -i '' -E "s/osx_minimum_system_version = \"[0-9]+\.[0-9]+\"/osx_minimum_system_version = \"${min_version}\"/" Cargo.toml
+          sed -i '' -E "s/MACOSX_DEPLOYMENT_TARGET = [0-9]+\.[0-9]+;/MACOSX_DEPLOYMENT_TARGET = ${min_version};/" flutter/macos/Runner.xcodeproj/project.pbxproj
+
+      - name: Setup vcpkg
+        shell: bash
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$GITHUB_WORKSPACE/vcpkg"
+          git -C "$GITHUB_WORKSPACE/vcpkg" fetch --depth 1 origin "$VCPKG_COMMIT_ID"
+          git -C "$GITHUB_WORKSPACE/vcpkg" reset --hard "$VCPKG_COMMIT_ID"
+          "$GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Install vcpkg dependencies
+        shell: bash
+        working-directory: rustdesk
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --triplet "${{ matrix.vcpkg_triplet }}" \
+            --x-install-root="$VCPKG_ROOT/installed"
+
+      - name: Apply embedded self-host configuration
+        if: ${{ github.event.inputs.embed_selfhost_config != 'false' }}
+        shell: bash
+        env:
+          RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
+          RUSTDESK_KEY: ${{ secrets.RUSTDESK_KEY }}
+        run: |
+          bash "$GITHUB_WORKSPACE/scripts/apply-embedded-server-config.sh" "$GITHUB_WORKSPACE/rustdesk"
+
+      - name: Build unsigned macOS client
+        shell: bash
+        working-directory: rustdesk
+        env:
+          RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
+          EMBED_SELFHOST_CONFIG: ${{ github.event.inputs.embed_selfhost_config }}
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
+          VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.vcpkg_triplet }}
+        run: |
+          flutter config --enable-macos-desktop
+          python3 ./build.py --flutter --hwcodec --unix-file-copy-paste ${{ matrix.build_args }}
+
+      - name: Verify embedded self-host configuration
+        if: ${{ github.event.inputs.embed_selfhost_config != 'false' }}
+        shell: bash
+        working-directory: rustdesk
+        env:
+          RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
+        run: |
+          if [[ -z "${RUSTDESK_HOST:-}" ]]; then
+            echo "No self-hosted server was configured; skipping embedded server verification."
+            exit 0
+          fi
+
+          library_path="./flutter/build/macos/Build/Products/Release/RustDesk.app/Contents/Frameworks/librustdesk.dylib"
+          test -f "$library_path" || { echo "Built RustDesk library was not found: $library_path" >&2; exit 1; }
+          grep -aFq -- "$RUSTDESK_HOST" "$library_path" || {
+            echo "The built RustDesk library does not contain the configured self-hosted server." >&2
+            exit 1
+          }
+
+      - name: Create unsigned disk image
+        shell: bash
+        working-directory: rustdesk
+        run: |
+          app_path="./flutter/build/macos/Build/Products/Release/RustDesk.app"
+          test -d "$app_path" || { echo "Built RustDesk app was not found: $app_path" >&2; exit 1; }
+          create-dmg \
+            --icon "RustDesk.app" 200 190 \
+            --hide-extension "RustDesk.app" \
+            --window-size 800 400 \
+            --app-drop-link 600 185 \
+            "rustdesk-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}-${{ matrix.arch }}-unsigned.dmg" \
+            "$app_path"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          mv ./*.dmg "$GITHUB_WORKSPACE/dist/"
+
+      - name: Upload unsigned macOS disk image
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-macos-dmg-${{ matrix.arch }}-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
+          path: dist/*.dmg
+
+  publish-macos:
+    if: ${{ github.event.inputs.upload_release == 'true' }}
+    needs:
+      - resolve-rustdesk-ref
+      - build-macos
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Download macOS disk images
+        uses: actions/download-artifact@v4
+        with:
+          pattern: rustdesk-macos-dmg-*-${{ needs.resolve-rustdesk-ref.outputs.artifact_suffix }}
+          merge-multiple: true
+          path: dist
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: rustdesk-macos-${{ needs.resolve-rustdesk-ref.outputs.ref }}
+          name: RustDesk macOS ${{ needs.resolve-rustdesk-ref.outputs.ref }}
+          files: dist/*.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
