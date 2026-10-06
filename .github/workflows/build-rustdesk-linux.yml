@@ -274,7 +274,8 @@ jobs:
             echo "Expected exactly one RustDesk Debian package, found ${#packages[@]}." >&2
             exit 1
           fi
-          cp "${packages[0]}" dist/
+          package_name=$(basename "${packages[0]}")
+          cp "${packages[0]}" "dist/${package_name%.deb}-x86_64.deb"
 
       - name: Build RPM package
         shell: bash

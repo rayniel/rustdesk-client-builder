@@ -34,7 +34,7 @@ Windows 工作流每次只分发一个原生 `rustdesk-*-install.exe`。
 
 Linux 工作流构建原生 Linux x64 包：
 
-- `.deb`：适用于 Ubuntu、Debian 及其他 Debian 系发行版。
+- `.deb`：适用于 Ubuntu、Debian 及其他 Debian 系发行版；分发文件名带 `x86_64`，包内标准架构字段为 `amd64`。
 - `.rpm`：适用于 Fedora、RHEL、Rocky Linux、AlmaLinux、CentOS Stream 及其他 RPM 系发行版。
 - `.AppImage`：可在大多数 x64 Linux 发行版直接运行；下载后执行 `chmod +x rustdesk-*.AppImage`。
 
