@@ -263,8 +263,12 @@ jobs:
             exit 0
           fi
 
-          library_path="./flutter/build/macos/Build/Products/Release/RustDesk.app/Contents/Frameworks/librustdesk.dylib"
-          test -f "$library_path" || { echo "Built RustDesk library was not found: $library_path" >&2; exit 1; }
+          library_path="./flutter/build/macos/Build/Products/Release/RustDesk.app/Contents/Frameworks/liblibrustdesk.dylib"
+          if [[ ! -f "$library_path" ]]; then
+            echo "Built RustDesk library was not found: $library_path" >&2
+            find "./flutter/build/macos/Build/Products/Release/RustDesk.app" -name '*.dylib' -print >&2 || true
+            exit 1
+          fi
           grep -aFq -- "$RUSTDESK_HOST" "$library_path" || {
             echo "The built RustDesk library does not contain the configured self-hosted server." >&2
             exit 1
