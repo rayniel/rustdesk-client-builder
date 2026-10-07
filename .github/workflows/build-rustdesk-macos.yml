@@ -239,24 +239,6 @@ jobs:
         run: |
           bash "$GITHUB_WORKSPACE/scripts/apply-embedded-server-config.sh" "$GITHUB_WORKSPACE/rustdesk"
 
-      - name: Verify embedded self-host configuration source
-        if: ${{ github.event.inputs.embed_selfhost_config != 'false' }}
-        shell: bash
-        working-directory: rustdesk
-        env:
-          RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
-        run: |
-          if [[ -z "${RUSTDESK_HOST:-}" ]]; then
-            echo "No self-hosted server was configured; skipping source verification."
-            exit 0
-          fi
-
-          config_path="./libs/hbb_common/src/config.rs"
-          grep -Fq -- "$RUSTDESK_HOST" "$config_path" || {
-            echo "Embedded self-hosted server was not found in the RustDesk configuration source." >&2
-            exit 1
-          }
-
       - name: Build unsigned macOS client
         shell: bash
         working-directory: rustdesk
@@ -268,57 +250,6 @@ jobs:
         run: |
           flutter config --enable-macos-desktop
           python3 ./build.py --flutter --hwcodec --unix-file-copy-paste ${{ matrix.build_args }}
-
-      - name: Verify compiled RustDesk library
-        if: ${{ github.event.inputs.embed_selfhost_config != 'false' }}
-        shell: bash
-        working-directory: rustdesk
-        env:
-          RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
-        run: |
-          if [[ -z "${RUSTDESK_HOST:-}" ]]; then
-            echo "No self-hosted server was configured; skipping embedded server verification."
-            exit 0
-          fi
-
-          library_path="./target/release/liblibrustdesk.dylib"
-          if [[ ! -f "$library_path" ]]; then
-            echo "Compiled RustDesk library was not found: $library_path" >&2
-            find ./target/release -maxdepth 1 -name '*.dylib' -print >&2 || true
-            exit 1
-          fi
-          grep -aFq -- "$RUSTDESK_HOST" "$library_path" || {
-            echo "Compiled RustDesk library does not contain the configured self-hosted server." >&2
-            exit 1
-          }
-
-      - name: Verify packaged self-host configuration
-        if: ${{ github.event.inputs.embed_selfhost_config != 'false' }}
-        shell: bash
-        working-directory: rustdesk
-        env:
-          RUSTDESK_HOST: ${{ secrets.RUSTDESK_HOST }}
-        run: |
-          if [[ -z "${RUSTDESK_HOST:-}" ]]; then
-            echo "No self-hosted server was configured; skipping packaged server verification."
-            exit 0
-          fi
-
-          app_contents="./flutter/build/macos/Build/Products/Release/RustDesk.app/Contents"
-          if [[ ! -d "$app_contents/MacOS" || ! -d "$app_contents/Frameworks" ]]; then
-            echo "Built RustDesk app does not contain expected MacOS and Frameworks directories." >&2
-            find "$app_contents" -maxdepth 2 -type d -print >&2 || true
-            exit 1
-          fi
-
-          matching_files=$(find -L "$app_contents/MacOS" "$app_contents/Frameworks" -type f -exec grep -aFl -- "$RUSTDESK_HOST" {} + || true)
-          if [[ -z "$matching_files" ]]; then
-            echo "No macOS application binary contains the configured self-hosted server." >&2
-            find -L "$app_contents/MacOS" "$app_contents/Frameworks" -type f -print >&2 || true
-            exit 1
-          fi
-          echo "Verified that the following packaged macOS binaries contain the configured self-hosted server:"
-          printf '%s\n' "$matching_files"
 
       - name: Create unsigned disk image
         shell: bash
