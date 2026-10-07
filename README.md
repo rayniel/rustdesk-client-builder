@@ -41,12 +41,31 @@ Linux 工作流构建原生 Linux x64 包：
 
 Linux Artifact 直接包含这三个文件；手动运行时将 `upload_release` 设为 `true`，Release 会提供三者的直接下载。
 
-macOS 工作流构建两个未签名的 `.dmg`：
+macOS 构建提供未签名的 `.dmg`：
 
-- `x86_64`：使用 `macos-13` runner 构建，适用于 Intel Mac。
 - `arm64`：使用 `macos-14` runner 构建，适用于 Apple Silicon（M1/M2/M3/M4）Mac。
+- `x86_64`：在 Intel Mac 本机构建，避免 GitHub 托管 Intel runner 的不可预测排队。
 
 DMG 内含 RustDesk.app 与“应用程序”拖放快捷方式。未签名版本仅适合内部测试或受信任分发；首次打开出现 Gatekeeper 提示时，请在 Finder 中按住 `Control` 点按应用并选择“打开”，或在“系统设置 → 隐私与安全性”选择“仍要打开”。不要关闭 Gatekeeper 或运行全局绕过命令。
+
+### 本机构建 Intel macOS x64
+
+在 Intel Mac 上安装 Rustup、Homebrew 与 Flutter `3.24.5` 后，检出本仓库和目标 RustDesk 源码。脚本会安装/固定其余构建依赖、生成 Bridge、应用与 Actions 相同的自建服务器源码补丁，并输出未签名 DMG。
+
+```bash
+git clone --recurse-submodules https://github.com/rustdesk/rustdesk.git ~/src/rustdesk
+cd ~/src/rustdesk
+git checkout <rustdesk_ref>
+git submodule update --init --recursive
+
+cd /path/to/rustdesk-client-builder
+RUSTDESK_ROOT=~/src/rustdesk \
+RUSTDESK_HOST='your-hbbs-host' \
+RUSTDESK_KEY='your-server-public-key' \
+bash scripts/build-macos-intel-local.sh
+```
+
+不设置 `RUSTDESK_HOST` 与 `RUSTDESK_KEY` 时，脚本会保留 RustDesk 上游默认服务器；设置其中任一个时必须同时设置另一个。生成文件位于 `dist/rustdesk-<version>-x86_64-unsigned.dmg`。
 
 ### 验证自建服务器
 
@@ -57,7 +76,7 @@ DMG 内含 RustDesk.app 与“应用程序”拖放快捷方式。未签名版�
 ## 说明
 
 - 当前方案兼容 RustDesk 开源版常规构建流程，不依赖 Pro 的 custom client generator
-- 当前工作流构建 Windows x64（`x86_64-pc-windows-msvc`）、Linux x64（`x86_64-unknown-linux-gnu`）、macOS Intel x64（`x86_64-apple-darwin`）和 macOS Apple Silicon ARM64（`aarch64-apple-darwin`）；Artifact 与 Release 名称均包含平台和架构
+- 当前 GitHub Actions 构建 Windows x64（`x86_64-pc-windows-msvc`）、Linux x64（`x86_64-unknown-linux-gnu`）和 macOS Apple Silicon ARM64（`aarch64-apple-darwin`）；Intel Mac x64（`x86_64-apple-darwin`）通过本机脚本原生构建
 - 如果未设置上述任何自建服务器 Secret，工作流仍会正常构建未配置客户端
 - Windows runner 上的 NASM 和 vcpkg 不能盲目跟随最新版本；本仓库固定 NASM 2.16.03 和 RustDesk 上游 CI 使用的 vcpkg commit，以避免 `aom:x64-windows-static` 在新工具链上构建失败
 - 为降低上游 `master` 变化带来的风险，日常发布建议在 `rustdesk_ref` 中填写已验证的 RustDesk tag 或 commit；工作流会为指定 ref 单独生成匹配的 Bridge 文件

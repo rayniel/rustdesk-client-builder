@@ -133,12 +133,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13
-            rust_target: x86_64-apple-darwin
-            arch: x86_64
-            vcpkg_triplet: x64-osx
-            build_args: ""
-            min_macos_version: "10.14"
           - runner: macos-14
             rust_target: aarch64-apple-darwin
             arch: arm64
