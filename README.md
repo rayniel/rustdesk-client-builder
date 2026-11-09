@@ -43,7 +43,7 @@ Linux Artifact 直接包含这三个文件；手动运行时将 `upload_release`
 
 macOS 构建提供未签名的 `.dmg`：
 
-- `arm64`：使用 `macos-14` runner 构建，适用于 Apple Silicon（M1/M2/M3/M4）Mac。
+- `arm64`：使用 `macos-15` ARM64 runner 构建，适用于 Apple Silicon（M1/M2/M3/M4）Mac。GitHub Actions 的 `macos-14` runner 已于 2026 年 11 月 2 日退役。
 - `x86_64`：在 Intel Mac 本机构建，避免 GitHub 托管 Intel runner 的不可预测排队。
 
 DMG 内含 RustDesk.app 与“应用程序”拖放快捷方式。未签名版本仅适合内部测试或受信任分发；首次打开出现 Gatekeeper 提示时，请在 Finder 中按住 `Control` 点按应用并选择“打开”，或在“系统设置 → 隐私与安全性”选择“仍要打开”。不要关闭 Gatekeeper 或运行全局绕过命令。
